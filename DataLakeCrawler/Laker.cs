@@ -37,8 +37,8 @@ namespace DataLakeCrawler
         private QueueClient _queueClient;
         string sasToken;
         Uri serviceUri;
-        DataLakeServiceClient serviceClient;
-        DataLakeFileSystemClient fileSystemClient;
+        static DataLakeServiceClient serviceClient;
+        static DataLakeFileSystemClient fileSystemClient;
         string fileSystemName;
         private readonly TelemetryClient telemetryClient;
         public Laker(IConfiguration config, TelemetryConfiguration configuration)
@@ -49,8 +49,16 @@ namespace DataLakeCrawler
             sasToken = config["sasToken"];
             serviceUri = new Uri(config["serviceUri"]);
             fileSystemName = config["fileSystemName"];
-            serviceClient = new DataLakeServiceClient(serviceUri, new AzureSasCredential(sasToken));
-            fileSystemClient = serviceClient.GetFileSystemClient(fileSystemName);
+            if (serviceClient == null) 
+            {
+                serviceClient = new DataLakeServiceClient(serviceUri, new AzureSasCredential(sasToken));
+            }
+
+            if (fileSystemClient == null)
+            {
+                fileSystemClient = serviceClient.GetFileSystemClient(fileSystemName);
+            }
+
             var csb = new ServiceBusConnectionStringBuilder(ServiceBusConnection);
             csb.EntityPath = ServiceBusQueue;
             _queueClient = new QueueClient(csb);
@@ -126,7 +134,20 @@ namespace DataLakeCrawler
             log.LogDebug($"Time to obtain directory client was {w.ElapsedMilliseconds} ms");
             
             w.Reset();
-            var aclResult = await directoryClient.GetAccessControlAsync();
+
+            Response<PathAccessControl> aclResult = null;
+
+            try
+            {
+                aclResult = await directoryClient.GetAccessControlAsync();
+            }
+            catch (Exception e)
+            {
+                telemetryClient.TrackException(e);
+                telemetryClient.GetMetric("FailedLakeAclRequests").TrackValue(1);
+                telemetryClient.TrackTrace($"Salamander - Attempt to retrieve acl for directory {name} failed.  Exception was {e}");
+            }
+
             log.LogDebug($"Time to GetAccessControlAsync was {w.ElapsedMilliseconds} ms");
             foreach (var item in aclResult.Value.AccessControlList)
             {
@@ -134,8 +155,17 @@ namespace DataLakeCrawler
             }
             log.LogDebug($"{cr.ACLs.Count} ACLS are present");
             log.LogInformation($"Processing directory {name}");
-           
-            AsyncPageable<PathItem> pathItems = directoryClient.GetPathsAsync(false);
+            AsyncPageable<PathItem> pathItems=null;
+            try
+            {
+               pathItems = directoryClient.GetPathsAsync(false);
+            }
+            catch (Exception e)
+            {
+                telemetryClient.TrackException(e);
+                telemetryClient.GetMetric("FailedLakeRequests").TrackValue(1);
+                telemetryClient.TrackTrace($"Salamander - Attempt to process directory {name} failed.  Exception was {e}");
+            }
             await foreach (var pathItem in pathItems)
             {
 
@@ -153,7 +183,18 @@ namespace DataLakeCrawler
                     CrawlerFile cf = new CrawlerFile();
                     cf.Name = pathItem.Name;
                     w.Reset();
-                    aclResult = await fileClient.GetAccessControlAsync();
+
+                    try
+                    {
+                        aclResult = await fileClient.GetAccessControlAsync();
+                    }
+                    catch (Exception e)
+                    {
+                        telemetryClient.TrackException(e);
+                        telemetryClient.GetMetric("FailedLakeAclRequests").TrackValue(1);
+                        telemetryClient.TrackTrace($"Salamander - Attempt to retrieve acl for file {pathItem} failed.  Exception was {e}");
+                    }
+
                     log.LogDebug($"Time to GetAccessControlAsync was {w.ElapsedMilliseconds} ms");
                    
                     foreach (var item in aclResult.Value.AccessControlList)
