@@ -63,8 +63,6 @@ namespace DataLakeCrawler
             csb.EntityPath = ServiceBusQueue;
             _queueClient = new QueueClient(csb);
         }
-
-
         [FunctionName("LakerTrigger")]
         public async Task<IActionResult> Trigger(
     [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
@@ -108,6 +106,7 @@ namespace DataLakeCrawler
     [return: EventHub("lakehub", Connection = "EventHubConnection")]
         public async Task<string> Run([ServiceBusTrigger("lake-queue-local", Connection = "ServiceBusConnection")] Message message, ILogger log, MessageReceiver messageReceiver)
         {
+            telemetryClient.GetMetric("LakeMessagesReceived").TrackValue(1);
             log.LogDebug($"ProcessLakeFolder: Message {message.MessageId} is locked until {message.SystemProperties.LockedUntilUtc}");
             log.LogDebug($"");
             CrawlerResult cr = new CrawlerResult();
@@ -161,6 +160,7 @@ namespace DataLakeCrawler
                 telemetryClient.TrackException(e);
                 telemetryClient.GetMetric("FailedLakeAclRequests").TrackValue(1);
                 telemetryClient.TrackTrace($"Salamander - Attempt to retrieve acl for directory {name} failed.  Exception was {e}");
+                throw e;
             }
 
             log.LogDebug($"Time to GetAccessControlAsync was {w.ElapsedMilliseconds} ms");
@@ -180,6 +180,7 @@ namespace DataLakeCrawler
                 telemetryClient.TrackException(e);
                 telemetryClient.GetMetric("FailedLakeRequests").TrackValue(1);
                 telemetryClient.TrackTrace($"Salamander - Attempt to process directory {name} failed.  Exception was {e}");
+                throw e;
             }
             await foreach (var pathItem in pathItems)
             {
@@ -208,6 +209,7 @@ namespace DataLakeCrawler
                         telemetryClient.TrackException(e);
                         telemetryClient.GetMetric("FailedLakeAclRequests").TrackValue(1);
                         telemetryClient.TrackTrace($"Salamander - Attempt to retrieve acl for file {pathItem} failed.  Exception was {e}");
+                        throw e;
                     }
 
                     log.LogDebug($"Time to GetAccessControlAsync was {w.ElapsedMilliseconds} ms");
@@ -220,7 +222,8 @@ namespace DataLakeCrawler
                 }
             }
             log.LogDebug($"ProcessLakeFolder: - completion {message.MessageId} is locked until {message.SystemProperties.LockedUntilUtc} and time now is {DateTime.UtcNow}");
-           // await messageReceiver.CompleteAsync(message.SystemProperties.LockToken);
+            // await messageReceiver.CompleteAsync(message.SystemProperties.LockToken);
+            telemetryClient.GetMetric("LakeMessagesProcessed").TrackValue(1);
             return JsonConvert.SerializeObject(cr);
         }
     }
