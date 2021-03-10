@@ -52,8 +52,8 @@ namespace DataLakeCrawler
         }
 
         [FunctionName("ProcessLakeFolder")]
-        [return: EventHub("lakehub", Connection = "EventHubConnection")]
-        public async Task<CrawlerResult> Run([ServiceBusTrigger("lake-queue", Connection = "ServiceBusConnection")] Message message, ILogger log, MessageReceiver messageReceiver)
+       // [return: EventHub("lakehub", Connection = "EventHubConnection")]
+        public async Task Run([ServiceBusTrigger("lake-queue", Connection = "ServiceBusConnection")] Message message, ILogger log, MessageReceiver messageReceiver)
         {
             CrawlerResult cr = new CrawlerResult();
             Stopwatch w = new Stopwatch();
@@ -115,7 +115,7 @@ namespace DataLakeCrawler
                     cr.Files.Add(cf);
                 }
             }
-            return cr;
+            return;
         }
     }
 }
