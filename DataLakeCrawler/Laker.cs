@@ -106,7 +106,7 @@ namespace DataLakeCrawler
 
     [FunctionName("ProcessLakeFolder")]
     [return: EventHub("lakehub", Connection = "EventHubConnection")]
-        public async Task<CrawlerResult> Run([ServiceBusTrigger("lake-queue-local", Connection = "ServiceBusConnection")] Message message, ILogger log, MessageReceiver messageReceiver)
+        public async Task<string> Run([ServiceBusTrigger("lake-queue-local", Connection = "ServiceBusConnection")] Message message, ILogger log, MessageReceiver messageReceiver)
         {
             log.LogDebug($"ProcessLakeFolder: Message {message.MessageId} is locked until {message.SystemProperties.LockedUntilUtc}");
             log.LogDebug($"");
@@ -130,7 +130,22 @@ namespace DataLakeCrawler
                 throw e;
             }
             w.Start();
-            var directoryClient = fileSystemClient.GetDirectoryClient(name);
+
+
+
+
+            DataLakeDirectoryClient directoryClient = null;
+            try
+            {
+                directoryClient = fileSystemClient.GetDirectoryClient(name);
+            }
+            catch (Exception e)
+            {
+                telemetryClient.TrackException(e);
+                telemetryClient.GetMetric("FailedLakeRequests").TrackValue(1);
+                telemetryClient.TrackTrace($"Salamander - Attempt directory client for  {name} failed.  Exception was {e}");
+            }
+
             log.LogDebug($"Time to obtain directory client was {w.ElapsedMilliseconds} ms");
             
             w.Reset();
@@ -206,7 +221,7 @@ namespace DataLakeCrawler
             }
             log.LogDebug($"ProcessLakeFolder: - completion {message.MessageId} is locked until {message.SystemProperties.LockedUntilUtc} and time now is {DateTime.UtcNow}");
            // await messageReceiver.CompleteAsync(message.SystemProperties.LockToken);
-            return cr;
+            return JsonConvert.SerializeObject(cr);
         }
     }
 }
