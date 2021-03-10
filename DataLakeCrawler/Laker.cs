@@ -98,9 +98,10 @@ namespace DataLakeCrawler
 
     [FunctionName("ProcessLakeFolder")]
        // [return: EventHub("lakehub", Connection = "EventHubConnection")]
-        public async Task Run([ServiceBusTrigger("lake-queue", Connection = "ServiceBusConnection")] Message message, ILogger log, MessageReceiver messageReceiver)
+        public async Task Run([ServiceBusTrigger("lake-queue-local", Connection = "ServiceBusConnection")] Message message, ILogger log, MessageReceiver messageReceiver)
         {
-            
+            log.LogDebug($"ProcessLakeFolder: Message {message.MessageId} is locked until {message.SystemProperties.LockedUntilUtc}");
+            log.LogDebug($"");
             CrawlerResult cr = new CrawlerResult();
             Stopwatch w = new Stopwatch();
             string payload = System.Text.Encoding.UTF8.GetString(message.Body);
@@ -162,7 +163,8 @@ namespace DataLakeCrawler
                     cr.Files.Add(cf);
                 }
             }
-            await messageReceiver.CompleteAsync(message.SystemProperties.LockToken);
+            log.LogDebug($"ProcessLakeFolder: - completion {message.MessageId} is locked until {message.SystemProperties.LockedUntilUtc} and time now is {DateTime.UtcNow}");
+           // await messageReceiver.CompleteAsync(message.SystemProperties.LockToken);
             return;
         }
     }
