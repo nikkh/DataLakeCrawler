@@ -120,7 +120,7 @@ namespace DataLakeCrawler
             cr.IsDirectory = Boolean.Parse(x["IsDirectory"].ToString());
             if (cr.IsDirectory)
             {
-                telemetryClient.TrackEvent($"Directory processing request recieved for directory {cr.Path} was recieved");
+                telemetryClient.TrackEvent($"Directory processing request");
             }
             else
             {
@@ -155,6 +155,7 @@ namespace DataLakeCrawler
             try
             {
                 aclResult = await directoryClient.GetAccessControlAsync();
+                telemetryClient.TrackEvent($"Directory ACL");
             }
             catch (Exception e)
             {
@@ -190,11 +191,13 @@ namespace DataLakeCrawler
                     string data = JsonConvert.SerializeObject(pathItem);
                     Message newMessage = new Message(Encoding.UTF8.GetBytes(data));
                     await _queueClient.SendAsync(newMessage);
+                    telemetryClient.TrackEvent($"Service bus message sent");
                 }
                 else
                 {
                    log.LogDebug($"File {pathItem} will be added to output");
-                   var fileClient = fileSystemClient.GetFileClient(pathItem.Name);
+                    telemetryClient.TrackEvent($"File get");
+                    var fileClient = fileSystemClient.GetFileClient(pathItem.Name);
                     CrawlerFile cf = new CrawlerFile();
                     cf.Name = pathItem.Name;
                     w.Reset();
@@ -202,6 +205,7 @@ namespace DataLakeCrawler
                     try
                     {
                         aclResult = await fileClient.GetAccessControlAsync();
+                        telemetryClient.TrackEvent($"File ACL");
                     }
                     catch (Exception e)
                     {
