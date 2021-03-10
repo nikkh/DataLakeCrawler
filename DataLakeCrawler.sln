@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.31019.35
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DataLakeCrawler", "DataLakeCrawler\DataLakeCrawler.csproj", "{4DD05C6F-C26B-4179-AE9D-8EC5C92FFB7B}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DataLakeCrawler", "DataLakeCrawler\DataLakeCrawler.csproj", "{4DD05C6F-C26B-4179-AE9D-8EC5C92FFB7B}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
