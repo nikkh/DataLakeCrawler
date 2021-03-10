@@ -104,7 +104,7 @@ namespace DataLakeCrawler
 
     [FunctionName("ProcessLakeFolder")]
     [return: EventHub("lakehub", Connection = "EventHubConnection")]
-        public async Task<string> Run([ServiceBusTrigger("lake-queue-local", Connection = "ServiceBusConnection")] Message message, ILogger log, MessageReceiver messageReceiver)
+        public async Task<string> Run([ServiceBusTrigger("%ServiceBusQueue%", Connection = "ServiceBusConnection")] Message message, ILogger log, MessageReceiver messageReceiver)
         {
             telemetryClient.GetMetric("LakeMessagesReceived").TrackValue(1);
             log.LogDebug($"ProcessLakeFolder: Message {message.MessageId} is locked until {message.SystemProperties.LockedUntilUtc}");
