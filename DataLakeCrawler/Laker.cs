@@ -58,7 +58,7 @@ namespace DataLakeCrawler
 
 
         [FunctionName("LakerTrigger")]
-        public async Task<IActionResult> Run(
+        public async Task<IActionResult> Trigger(
     [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
     ILogger log)
         {
