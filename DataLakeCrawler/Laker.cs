@@ -119,7 +119,8 @@ namespace DataLakeCrawler
             cr.IsDirectory = Boolean.Parse(x["IsDirectory"].ToString());
             if (cr.IsDirectory)
             {
-                telemetryClient.TrackEvent($"Directory processing request");
+                telemetryClient.TrackEvent($"Directory processing request", 
+                        new Dictionary<string, string>() { { "path", cr.Path } });
             }
             else
             {
@@ -154,7 +155,8 @@ namespace DataLakeCrawler
             try
             {
                 aclResult = await directoryClient.GetAccessControlAsync();
-                telemetryClient.TrackEvent($"Directory ACL");
+                telemetryClient.TrackEvent($"Directory ACL",
+                    new Dictionary<string, string>() { { "path", cr.Path } });
             }
             catch (Exception e)
             {
@@ -192,12 +194,14 @@ namespace DataLakeCrawler
                     string data = JsonConvert.SerializeObject(pathItem);
                     Message newMessage = new Message(Encoding.UTF8.GetBytes(data));
                     await _queueClient.SendAsync(newMessage);
-                    telemetryClient.TrackEvent($"Service bus message sent");
+                    telemetryClient.TrackEvent($"Service bus message sent",
+                        new Dictionary<string, string>() { { "path", pathItem.Name } });
                 }
                 else
                 {
                    log.LogDebug($"File {pathItem} will be added to output");
-                    telemetryClient.TrackEvent($"File get");
+                    telemetryClient.TrackEvent($"File get",
+                        new Dictionary<string, string>() { { "path", pathItem.Name } });
                     var fileClient = fileSystemClient.GetFileClient(pathItem.Name);
                     CrawlerFile cf = new CrawlerFile();
                     cf.Name = pathItem.Name;
@@ -206,7 +210,8 @@ namespace DataLakeCrawler
                     try
                     {
                         aclResult = await fileClient.GetAccessControlAsync();
-                        telemetryClient.TrackEvent($"File ACL");
+                        telemetryClient.TrackEvent($"File ACL",
+                            new Dictionary<string, string>() { { "path", pathItem.Name } });
                     }
                     catch (Exception e)
                     {
