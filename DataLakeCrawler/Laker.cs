@@ -106,20 +106,27 @@ namespace DataLakeCrawler
     [return: EventHub("lakehub", Connection = "EventHubConnection")]
         public async Task<string> Run([ServiceBusTrigger("%ServiceBusQueue%", Connection = "ServiceBusConnection")] Message message, ILogger log, MessageReceiver messageReceiver)
         {
+            Stopwatch watch = new Stopwatch();
+            watch.Start();
+
             telemetryClient.GetMetric("LakeMessagesReceived").TrackValue(1);
-            log.LogDebug($"ProcessLakeFolder: Message {message.MessageId} is locked until {message.SystemProperties.LockedUntilUtc}");
-            log.LogDebug($"");
+            
+            // create output object
             CrawlerResult cr = new CrawlerResult();
-            Stopwatch w = new Stopwatch();
+            
+            // parse incoming message
             string payload = System.Text.Encoding.UTF8.GetString(message.Body);
-            log.LogInformation($"C# ServiceBus queue trigger function processed message: {payload}");
-            var x = JObject.Parse(payload);
-            var name = x["Name"].ToString();
+            var jPayload = JObject.Parse(payload);
+            var name = jPayload["Name"].ToString();
             cr.Path = name;
-            cr.IsDirectory = Boolean.Parse(x["IsDirectory"].ToString());
+            cr.IsDirectory = Boolean.Parse(jPayload["IsDirectory"].ToString());
+
+            log.LogInformation($"ProcessLakeFolder: Message {message.MessageId} dequeued.  Path is {name}");
+
+            // If this is not a directory then error
             if (cr.IsDirectory)
             {
-                telemetryClient.TrackEvent($"Directory processing request recieved for directory {cr.Path} was recieved");
+                telemetryClient.TrackEvent($"Directory processing request received for directory {cr.Path}");
             }
             else
             {
@@ -128,92 +135,91 @@ namespace DataLakeCrawler
                 await messageReceiver.DeadLetterAsync(message.SystemProperties.LockToken);
                 throw e;
             }
-            w.Start();
 
-
-
-
+            // Get a client to read metadata for this directory and increment metrics for success or failure            
             DataLakeDirectoryClient directoryClient = null;
             try
             {
                 directoryClient = fileSystemClient.GetDirectoryClient(name);
+                telemetryClient.GetMetric("LakeDirClientSuccess").TrackValue(1);
             }
             catch (Exception e)
             {
                 telemetryClient.TrackException(e);
-                telemetryClient.GetMetric("FailedLakeRequests").TrackValue(1);
+                telemetryClient.GetMetric("LakeDirClientFailure").TrackValue(1);
                 telemetryClient.TrackTrace($"Salamander - Attempt directory client for  {name} failed.  Exception was {e}");
             }
 
-            log.LogDebug($"Time to obtain directory client was {w.ElapsedMilliseconds} ms");
-            
-            w.Reset();
-
+            // Get access control for this directory and increment metrics for success or failure
             Response<PathAccessControl> aclResult = null;
-
             try
             {
                 aclResult = await directoryClient.GetAccessControlAsync();
+                telemetryClient.GetMetric("LakeDirAclSuccess").TrackValue(1);
             }
             catch (Exception e)
             {
                 telemetryClient.TrackException(e);
-                telemetryClient.GetMetric("FailedLakeAclRequests").TrackValue(1);
+                telemetryClient.GetMetric("LakeDirAclFailue").TrackValue(1);
                 telemetryClient.TrackTrace($"Salamander - Attempt to retrieve acl for directory {name} failed.  Exception was {e}");
                 throw e;
             }
 
-            log.LogDebug($"Time to GetAccessControlAsync was {w.ElapsedMilliseconds} ms");
+            // add acls to output object
             foreach (var item in aclResult.Value.AccessControlList)
             {
                 cr.ACLs.Add(item);
             }
-            log.LogDebug($"{cr.ACLs.Count} ACLS are present");
-            log.LogInformation($"Processing directory {name}");
+
+            // read contents of this directory
             AsyncPageable<PathItem> pathItems=null;
             try
             {
                pathItems = directoryClient.GetPathsAsync(false);
+               telemetryClient.GetMetric("LakeDirPathSuccess").TrackValue(1);
             }
             catch (Exception e)
             {
                 telemetryClient.TrackException(e);
-                telemetryClient.GetMetric("FailedLakeRequests").TrackValue(1);
+                telemetryClient.GetMetric("LakeDirPathFailure").TrackValue(1);
                 telemetryClient.TrackTrace($"Salamander - Attempt to process directory {name} failed.  Exception was {e}");
                 throw e;
             }
+
+            // For each item in the directory
             await foreach (var pathItem in pathItems)
             {
-
+                // if it's a directory, just send a message to get it processed.
                 if ((bool)pathItem.IsDirectory)
                 {
                     log.LogWarning($"{pathItem.Name} is a directory.  Add to processing queue.");
                     string data = JsonConvert.SerializeObject(pathItem);
                     Message newMessage = new Message(Encoding.UTF8.GetBytes(data));
+                    telemetryClient.GetMetric("LakeDirMessagesGenerated").TrackValue(1);
                     await _queueClient.SendAsync(newMessage);
                 }
+                // if it's a file, get its acls
                 else
                 {
                    log.LogDebug($"File {pathItem} will be added to output");
                    var fileClient = fileSystemClient.GetFileClient(pathItem.Name);
-                    CrawlerFile cf = new CrawlerFile();
-                    cf.Name = pathItem.Name;
-                    w.Reset();
-
+                   CrawlerFile cf = new CrawlerFile();
+                   cf.Name = pathItem.Name;
+                    // Get access control for this file and increment metrics for success or failure
                     try
                     {
-                        aclResult = await fileClient.GetAccessControlAsync();
-                    }
-                    catch (Exception e)
-                    {
-                        telemetryClient.TrackException(e);
-                        telemetryClient.GetMetric("FailedLakeAclRequests").TrackValue(1);
-                        telemetryClient.TrackTrace($"Salamander - Attempt to retrieve acl for file {pathItem} failed.  Exception was {e}");
-                        throw e;
+                       aclResult = await fileClient.GetAccessControlAsync();
+                       telemetryClient.GetMetric("LakeFileAclSuccess").TrackValue(1);
+                   }
+                   catch (Exception e)
+                   {
+                       telemetryClient.TrackException(e);
+                       telemetryClient.GetMetric("LakeFileAclFailure").TrackValue(1);
+                       telemetryClient.TrackTrace($"Salamander - Attempt to retrieve acl for file {pathItem} failed.  Exception was {e}");
+                       throw e;
                     }
 
-                    log.LogDebug($"Time to GetAccessControlAsync was {w.ElapsedMilliseconds} ms");
-                   
+                    // add acls to file output object       
                     foreach (var item in aclResult.Value.AccessControlList)
                     {
                         cf.ACLs.Add(item);
@@ -221,8 +227,10 @@ namespace DataLakeCrawler
                     cr.Files.Add(cf);
                 }
             }
-            log.LogDebug($"ProcessLakeFolder: - completion {message.MessageId} is locked until {message.SystemProperties.LockedUntilUtc} and time now is {DateTime.UtcNow}");
-            // await messageReceiver.CompleteAsync(message.SystemProperties.LockToken);
+
+
+            log.LogInformation($"ProcessLakeFolder: Message {message.MessageId} processed.  Path was {name}");
+            telemetryClient.GetMetric("LakeMessagesProcessingDurationMs").TrackValue(watch.ElapsedMilliseconds);
             telemetryClient.GetMetric("LakeMessagesProcessed").TrackValue(1);
             return JsonConvert.SerializeObject(cr);
         }
