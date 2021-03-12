@@ -34,11 +34,11 @@ namespace DataLakeCrawler
 
         string ServiceBusConnection;
         string ServiceBusQueue;
-        private QueueClient _queueClient;
         string sasToken;
         Uri serviceUri;
         static DataLakeServiceClient serviceClient;
         static DataLakeFileSystemClient fileSystemClient;
+        static QueueClient _queueClient;
         string fileSystemName;
         private readonly TelemetryClient telemetryClient;
         public Laker(IConfiguration config, TelemetryConfiguration configuration)
@@ -58,10 +58,13 @@ namespace DataLakeCrawler
             {
                 fileSystemClient = serviceClient.GetFileSystemClient(fileSystemName);
             }
-
-            var csb = new ServiceBusConnectionStringBuilder(ServiceBusConnection);
-            csb.EntityPath = ServiceBusQueue;
-            _queueClient = new QueueClient(csb);
+            
+            if(_queueClient == null)
+            {
+                var csb = new ServiceBusConnectionStringBuilder(ServiceBusConnection);
+                csb.EntityPath = ServiceBusQueue;
+                _queueClient = new QueueClient(csb);
+            }
         }
         [FunctionName("LakerTrigger")]
         public async Task<IActionResult> Trigger(
