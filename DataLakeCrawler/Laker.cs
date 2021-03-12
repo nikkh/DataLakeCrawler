@@ -126,7 +126,8 @@ namespace DataLakeCrawler
             // If this is not a directory then error
             if (cr.IsDirectory)
             {
-                telemetryClient.TrackEvent($"Directory processing request received for directory {cr.Path}");
+                telemetryClient.TrackEvent($"Directory processing request", 
+                        new Dictionary<string, string>() { { "path", cr.Path } });
             }
             else
             {
