@@ -34,6 +34,9 @@ namespace DataLakeCrawler
 
         string ServiceBusConnection;
         string ServiceBusQueue;
+        string CreateQueue;
+        string TerminateCreate;
+
         string sasToken;
         Uri serviceUri;
         static DataLakeServiceClient serviceClient;
@@ -46,6 +49,8 @@ namespace DataLakeCrawler
             telemetryClient = new TelemetryClient(configuration);
             ServiceBusConnection = config["ServiceBusConnection"];
             ServiceBusQueue = config["ServiceBusQueue"];
+            CreateQueue = config["CreateQueue"];
+            TerminateCreate = config["TerminateCreate"];
             sasToken = config["sasToken"];
             serviceUri = new Uri(config["serviceUri"]);
             fileSystemName = config["fileSystemName"];
@@ -237,6 +242,66 @@ namespace DataLakeCrawler
             telemetryClient.GetMetric("LakeMessagesProcessingDurationMs").TrackValue(watch.ElapsedMilliseconds);
             telemetryClient.GetMetric("LakeMessagesProcessed").TrackValue(1);
             return JsonConvert.SerializeObject(cr);
+        }
+
+        [FunctionName("CreateLakeFolder")]
+        public async void RunCreate([ServiceBusTrigger("%CreateQueue%", Connection = "ServiceBusConnection")] Message message, ILogger log, MessageReceiver messageReceiver)
+        {
+            Stopwatch watch = new Stopwatch();
+            watch.Start();
+
+            telemetryClient.GetMetric("CreateLakeMessagesReceived").TrackValue(1);
+
+            // create output object
+            CrawlerResult cr = new CrawlerResult();
+
+            // parse incoming CreateRequest message
+            string payload = System.Text.Encoding.UTF8.GetString(message.Body);
+            CreateRequest request = JsonConvert.DeserializeObject<CreateRequest>(payload);
+
+            // if we are at the max path, do nothing - your work here is complete
+            if(request.CurrentDepth >= request.MaxDepth || TerminateCreate == "1")
+            {
+                log.LogInformation($"CreateLakeFolder: Message {message.MessageId} dequeued.  No more to do");
+                return;
+            }
+
+            // increment the path, or it will never stop
+            request.CurrentDepth++;
+
+            log.LogInformation($"CreateLakeFolder: Message {message.MessageId} dequeued.  Path is {request.Path}");
+
+            // using path, set where we are in terms of the current directory
+            var directoryClient = fileSystemClient.GetDirectoryClient(request.Path);
+
+            // create a number of files
+            for (int i = 0; i < request.NumberOfFiles; i++)
+            {
+
+                // TODO set ACLs for the file
+            }
+
+            // create a number of directories and fire off a service bus message for each
+            for (int i = 0; i < request.NumberOfFDirectories; i++)
+            {
+                // create directory
+                var newDir = string.Format("{1}{2}", request.DirectoryPattern, i);
+                await directoryClient.CreateSubDirectoryAsync(newDir);
+
+                // TODO set ACL for the directory
+
+                // send a service bus message with this new path
+                var childRequest = request;
+                childRequest.Path = request.Path + "/" + newDir; // new path
+                string data = JsonConvert.SerializeObject(childRequest);
+                Message newMessage = new Message(Encoding.UTF8.GetBytes(data));
+                await _queueClient.SendAsync(newMessage);
+
+            }
+
+            // tracking
+            telemetryClient.TrackEvent($"Directories created",
+                    new Dictionary<string, string>{ {"path", request.Path }, {"number", request.NumberOfFDirectories.ToString() } } );
         }
     }
 }
