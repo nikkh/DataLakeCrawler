@@ -34,8 +34,12 @@ namespace DataLakeCrawler
 
         string ServiceBusConnection;
         string ServiceBusQueue;
+        // create section
+        string TerminateCreate; 
         string CreateQueue;
-        string TerminateCreate;
+        string CreateSasToken;
+        string createFileSystemName;
+        Uri CreateServiceUri;
 
         string sasToken;
         Uri serviceUri;
@@ -44,12 +48,16 @@ namespace DataLakeCrawler
         static QueueClient _queueClient;
         string fileSystemName;
         private readonly TelemetryClient telemetryClient;
+
+        // create section
+        static DataLakeServiceClient createServiceClient;
+        static DataLakeFileSystemClient createFileSystemClient;
+
         public Laker(IConfiguration config, TelemetryConfiguration configuration)
         {
             telemetryClient = new TelemetryClient(configuration);
             ServiceBusConnection = config["ServiceBusConnection"];
             ServiceBusQueue = config["ServiceBusQueue"];
-            CreateQueue = config["CreateQueue"];
             TerminateCreate = config["TerminateCreate"];
             sasToken = config["sasToken"];
             serviceUri = new Uri(config["serviceUri"]);
@@ -70,7 +78,23 @@ namespace DataLakeCrawler
                 csb.EntityPath = ServiceBusQueue;
                 _queueClient = new QueueClient(csb);
             }
+
+            // create section
+            createFileSystemName = config["createFileSystemName"];
+            CreateQueue = config["createQueue"];
+            CreateSasToken = config["createSasToken"];
+            CreateServiceUri = new Uri(config["createServiceUri"]);
+            if (createServiceClient == null)
+            {
+                createServiceClient = new DataLakeServiceClient(CreateServiceUri, new AzureSasCredential(CreateSasToken));
+            }
+
+            if (createFileSystemClient == null)
+            {
+                createFileSystemClient = serviceClient.GetFileSystemClient(createFileSystemName);
+            }
         }
+
         [FunctionName("LakerTrigger")]
         public async Task<IActionResult> Trigger(
     [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
@@ -272,7 +296,7 @@ namespace DataLakeCrawler
             log.LogInformation($"CreateLakeFolder: Message {message.MessageId} dequeued.  Path is {request.Path}");
 
             // using path, set where we are in terms of the current directory
-            var directoryClient = fileSystemClient.GetDirectoryClient(request.Path);
+            var directoryClient = createFileSystemClient.GetDirectoryClient(request.Path);
 
             // create a number of files
             for (int i = 0; i < request.NumberOfFiles; i++)
